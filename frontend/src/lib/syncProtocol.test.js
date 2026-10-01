@@ -10,8 +10,60 @@ import { fileURLToPath } from 'node:url'
 import { createHmac } from 'node:crypto'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
-const HERE = dirname(fileURLToPath(import.meta.url))
 const DIR = mkdtempSync(join(tmpdir(), 'gym-sync-proto-'))
+
+// Import-hook entry point for the spawned API server. Redirects the server's
+// push-notification and passkey modules to local stubs so the data sync paths
+// (/api/data) boot and run with zero third-party dependencies.
+// Written to the temp dir at runtime (see beforeAll).
+const REGISTER_MJS = `import { register } from 'node:module';
+
+register('./syncServerHooks.mjs', import.meta.url);
+`
+
+// Resolve hook: server-only heavy deps resolve to hermetic stubs. The sync
+// protocol test exercises /api/data, which never touches passkeys or push.
+const HOOKS_MJS = `import { pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const STUBS = {
+  '@simplewebauthn/server': 'syncServerStubs.mjs',
+  'web-push': 'syncServerStubs.mjs',
+};
+
+export async function resolve(specifier, context, nextResolve) {
+  const file = STUBS[specifier];
+  if (file) {
+    const url = pathToFileURL(
+      join(dirname(fileURLToPath(import.meta.url)), file)
+    ).href;
+    return { url, shortCircuit: true };
+  }
+  return nextResolve(specifier, context);
+}
+`
+
+// Hermetic stand-ins for the API server's push/passkey modules, used only by
+// the sync protocol test. /api/data never calls these; any accidental call
+// throws loudly instead of silently succeeding.
+const STUBS_MJS = `const unreachable = name => () => {
+  throw new Error(\`syncServerStubs: \${name} must not run in protocol tests\`);
+};
+
+export const generateRegistrationOptions = unreachable('generateRegistrationOptions');
+export const verifyRegistrationResponse = unreachable('verifyRegistrationResponse');
+export const generateAuthenticationOptions = unreachable('generateAuthenticationOptions');
+export const verifyAuthenticationResponse = unreachable('verifyAuthenticationResponse');
+
+const webpush = {
+  generateVAPIDKeys: () => ({ publicKey: 'stub-public', privateKey: 'stub-private' }),
+  setVapidDetails: () => {},
+  sendNotification: unreachable('sendNotification'),
+};
+
+export default webpush;
+`
 const PORT = 38271 + (process.pid % 1000)
 const BASE = `http://127.0.0.1:${PORT}`
 
@@ -37,12 +89,15 @@ describe('sync revision protocol', () => {
       join(DIR, 'db.json'),
       JSON.stringify({ users: [{ id: 'u1' }, { id: 'u2' }], creds: [], subs: [], invites: [] })
     )
-    // Server-only push/passkey modules resolve to hermetic stubs (see
-    // syncServerRegister.mjs): /api/data never touches them, and this keeps
+    // Server-only push/passkey modules resolve to hermetic stubs written
+    // into the temp dir above: /api/data never touches them, and this keeps
     // the test independent of third-party API dependencies.
+    writeFileSync(join(DIR, 'syncServerRegister.mjs'), REGISTER_MJS)
+    writeFileSync(join(DIR, 'syncServerHooks.mjs'), HOOKS_MJS)
+    writeFileSync(join(DIR, 'syncServerStubs.mjs'), STUBS_MJS)
     child = spawn(
       process.execPath,
-      ['--import', join(HERE, 'syncServerRegister.mjs'), join(ROOT, 'api', 'server.js')],
+      ['--import', join(DIR, 'syncServerRegister.mjs'), join(ROOT, 'api', 'server.js')],
       {
         env: { ...process.env, PORT: String(PORT), DATA_DIR: DIR },
         stdio: 'ignore',
