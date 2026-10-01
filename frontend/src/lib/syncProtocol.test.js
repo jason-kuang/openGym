@@ -32,7 +32,10 @@ const req = (path, { method = 'GET', body, cookie } = {}) =>
 
 describe('sync revision protocol', () => {
   beforeAll(async () => {
-    writeFileSync(join(DIR, 'db.json'), JSON.stringify({ users: [{ id: 'u1' }], creds: [], subs: [], invites: [] }))
+    writeFileSync(
+      join(DIR, 'db.json'),
+      JSON.stringify({ users: [{ id: 'u1' }, { id: 'u2' }], creds: [], subs: [], invites: [] })
+    )
     child = spawn(process.execPath, [join(ROOT, 'api', 'server.js')], {
       env: { ...process.env, PORT: String(PORT), DATA_DIR: DIR },
       stdio: 'ignore',
@@ -105,5 +108,41 @@ describe('sync revision protocol', () => {
       body: { state: { workouts: [] } },
     })
     expect(put.status).toBe(409)
+  })
+
+  // Preserved behavior: passes on base and with the change (P2P).
+  it('unauthenticated data access is rejected', async () => {
+    expect((await req('/api/data')).status).toBe(401)
+    expect((await req('/api/data', { method: 'PUT', body: { state: {} } })).status).toBe(401)
+  })
+
+  it('upload without a state object is rejected', async () => {
+    const cookie = mintCookie('u2')
+    const put = await req('/api/data', { method: 'PUT', cookie, body: { baseRev: 0 } })
+    expect(put.status).toBe(400)
+  })
+
+  it('in-progress workout is stripped from stored state', async () => {
+    const cookie = mintCookie('u2')
+    const put = await req('/api/data', {
+      method: 'PUT',
+      cookie,
+      body: { state: { workouts: [], active: { id: 'live' } }, baseRev: 0 },
+    })
+    expect(put.status).toBe(200)
+    const get = await req('/api/data', { cookie })
+    expect(get.json.state).not.toHaveProperty('active')
+  })
+
+  it('sequential uploads persist each state', async () => {
+    const cookie = mintCookie('u2')
+    const put = await req('/api/data', {
+      method: 'PUT',
+      cookie,
+      body: { state: { workouts: [{ id: 'w9' }] }, baseRev: 1 },
+    })
+    expect(put.status).toBe(200)
+    const get = await req('/api/data', { cookie })
+    expect(get.json.state.workouts.map(w => w.id)).toEqual(['w9'])
   })
 })
