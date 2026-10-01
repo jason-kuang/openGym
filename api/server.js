@@ -51,6 +51,16 @@ const stateFile = uid => path.join(DATA, 'state-' + uid.replace(/[^a-zA-Z0-9_-]/
 function readState(uid) {
   try { return JSON.parse(fs.readFileSync(stateFile(uid), 'utf8')); } catch { return null; }
 }
+// Sync revision: bumped on every accepted upload, so a device uploading from
+// stale data can be refused instead of silently overwriting. Kept beside the
+// state file (not inside it) so existing state readers need no migration.
+const revFile = uid => path.join(DATA, 'rev-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
+function readRev(uid) {
+  try {
+    const n = JSON.parse(fs.readFileSync(revFile(uid), 'utf8'));
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch { return 0; }
+}
 
 /* ---------- push notifications (Web Push / VAPID) ---------- */
 const vapidFile = path.join(DATA, 'vapid.json');
@@ -377,8 +387,8 @@ const routes = {
     if (!user) return json(res, 401, { error: 'not signed in' });
     try {
       const state = JSON.parse(fs.readFileSync(stateFile(user.id), 'utf8'));
-      json(res, 200, { state });
-    } catch { json(res, 200, { state: null }); }
+      json(res, 200, { state, rev: readRev(user.id) });
+    } catch { json(res, 200, { state: null, rev: readRev(user.id) }); }
   },
 
   'PUT /api/data': async (req, res) => {
@@ -386,9 +396,20 @@ const routes = {
     if (!user) return json(res, 401, { error: 'not signed in' });
     const body = await readBody(req);
     if (!body.state || typeof body.state !== 'object') return json(res, 400, { error: 'state required' });
+    const rev = readRev(user.id);
+    // Stale uploads never overwrite: the device merges against the returned
+    // state and retries with the fresh revision. A missing baseRev only
+    // matches a never-synced account (rev 0), so outdated clients fail
+    // closed instead of clobbering.
+    if (body.baseRev !== rev) {
+      const state = readState(user.id);
+      return json(res, 409, { error: 'stale upload — merge and retry', state, rev });
+    }
     delete body.state.active;              // in-progress workouts stay device-local
+    delete body.state._rev;                // client echo — the server is the revision authority
     atomicWrite(stateFile(user.id), JSON.stringify(body.state));
-    json(res, 200, { ok: true, ts: body.state._ts || null });
+    atomicWrite(revFile(user.id), JSON.stringify(rev + 1));
+    json(res, 200, { ok: true, ts: body.state._ts || null, rev: rev + 1 });
   },
 
   'GET /api/push/public-key': async (req, res) => json(res, 200, { key: vapid.publicKey }),

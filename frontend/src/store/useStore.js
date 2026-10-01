@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../lib/api.js'
+import { mergeStates, trackLocalChanges, stripForUpload, pushWithRetry, sameContent } from '../lib/syncMerge.js'
 import { localTZ } from '../lib/format.js'
 import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
@@ -85,9 +86,15 @@ export const useStore = create((set, get) => {
     ready: false,
 
     // Mutate a draft of S via producer fn, then persist + schedule sync.
-    update(mut, push = true) {
-      const S = clone(get().S)
+    // Central mutation entry: every local edit flows through here, so entity
+    // timestamps, delete tombstones, and per-key touches are recorded in one
+    // place (S._sync) for merge sync. Internal applies (incoming merges)
+    // pass track=false to avoid fabricating history.
+    update(mut, push = true, track = true) {
+      const before = get().S
+      const S = clone(before)
       mut(S)
+      if (track) trackLocalChanges(before, S, Date.now())
       persist(S, push)
     },
     replaceState(S, push = false) { persist(clone(S), push) },
@@ -101,23 +108,43 @@ export const useStore = create((set, get) => {
       set({ user: u })
     },
 
+    // Upload with merge-and-retry: a 409 means the server moved on, so the
+    // server state is merged locally and the upload retried with the fresh
+    // revision. Stale uploads never overwrite.
     async pushState() {
       if (!get().user) return
       clearTimeout(pushTm)
-      try { await api('/api/data', { method: 'PUT', body: JSON.stringify({ state: get().S }) }); localStorage.removeItem('gym_dirty') }
-      catch (e) { localStorage.setItem('gym_dirty', '1') }
+      const startedFrom = get().S
+      try {
+        const { state, rev } = await pushWithRetry({
+          local: startedFrom,
+          baseRev: startedFrom._rev || 0,
+          put: body => api('/api/data', { method: 'PUT', body: JSON.stringify(body) }),
+          merge: (a, b) => mergeStates(a, b),
+        })
+        // An edit may have landed mid-upload; fold the synced result into the
+        // current state rather than clobbering it.
+        const cur = get().S
+        const final = cur === startedFrom ? state : mergeStates(cur, state)
+        final._rev = rev
+        persist(final, false)
+        localStorage.removeItem('gym_dirty')
+      } catch (e) { localStorage.setItem('gym_dirty', '1') }
     },
+    // Download merges instead of replacing: both sides keep their additions,
+    // and anything merged in that the server lacks is pushed back up.
     async pullState() {
       try {
-        const { state } = await api('/api/data')
+        const { state, rev } = await api('/api/data')
         const S = get().S
-        const dirty = localStorage.getItem('gym_dirty') === '1'
-        if (state && (!hasData(S) || ((state._ts || 0) >= (S._ts || 0) && !dirty))) {
-          const active = S.active
-          const next = Object.assign(clone(DEF), state)
-          if (active) next.active = active
-          persist(next, false)
-        } else if (hasData(S)) { await get().pushState() }
+        if (!state) {
+          if (hasData(S)) await get().pushState()
+          return
+        }
+        const merged = mergeStates(S, state)
+        merged._rev = rev ?? S._rev ?? 0
+        if (!sameContent(merged, S)) persist(merged, false)
+        if (!sameContent(stripForUpload(merged), stripForUpload(state))) await get().pushState()
       } catch (e) { /* offline — keep local */ }
     },
 

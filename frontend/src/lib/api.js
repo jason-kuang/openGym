@@ -8,7 +8,12 @@ export const webauthnOK = () => !!(window.PublicKeyCredential && navigator.crede
 export async function api(path, opts) {
   const r = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts))
   const data = await r.json().catch(() => ({}))
-  if (!r.ok) { const e = new Error(data.error || ('HTTP ' + r.status)); e.status = r.status; throw e }
+  if (!r.ok) {
+    const e = new Error(data.error || ('HTTP ' + r.status))
+    e.status = r.status
+    e.data = data // parsed body when JSON (a 409 carries { state, rev } for merge-and-retry)
+    throw e
+  }
   return data
 }
 
