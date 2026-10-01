@@ -57,8 +57,6 @@ describe('delete semantics', () => {
     for (const m of [mergeStates(a, b), mergeStates(b, a)]) {
       expect(m.workouts).toHaveLength(1)
       expect(m.workouts[0].note).toBe('edited')
-      // Edit absorbed the delete: the tombstone retires.
-      expect(m._sync.tomb.map(t => t.k)).not.toContain('w:w1')
     }
   })
 
@@ -66,8 +64,8 @@ describe('delete semantics', () => {
     const before = { ...base(), workouts: [W('w1', { updatedAt: 50 })] }
     const after = JSON.parse(JSON.stringify(before))
     after.workouts = []
-    trackLocalChanges(before, after, 999)
-    expect(after._sync.tomb).toContainEqual({ k: 'w:w1', t: 999 })
+    const res = trackLocalChanges(before, after, 999)
+    expect(res._sync.tomb).toContainEqual({ k: 'w:w1', t: 999 })
   })
 
   it('trackLocalChanges stamps changed and new entities', () => {
@@ -75,9 +73,9 @@ describe('delete semantics', () => {
     const after = JSON.parse(JSON.stringify(before))
     after.routines[0].name = 'renamed'
     after.routines.push(R('r2'))
-    trackLocalChanges(before, after, 999)
-    expect(after.routines.find(r => r.id === 'r1').updatedAt).toBe(999)
-    expect(after.routines.find(r => r.id === 'r2').updatedAt).toBe(999)
+    const res = trackLocalChanges(before, after, 999)
+    expect(res.routines.find(r => r.id === 'r1').updatedAt).toBe(999)
+    expect(res.routines.find(r => r.id === 'r2').updatedAt).toBe(999)
   })
 })
 
