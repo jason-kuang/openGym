@@ -210,7 +210,7 @@ describe('pushWithRetry', () => {
     expect(put).toHaveBeenCalledTimes(1)
     expect(put.mock.calls[0][0].baseRev).toBe(6)
     expect(res.rev).toBe(7)
-    expect(res.state._rev).toBe(7)
+    expect(res.state.workouts).toEqual(local.workouts)
   })
 
   it('on 409 merges the server state and retries with the new revision', async () => {
