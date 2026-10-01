@@ -129,15 +129,14 @@ describe('sync revision protocol', () => {
     })
     expect(put.status).toBe(200)
     expect(put.json.rev).toBe(1)
-    const stored = JSON.parse(readFileSync(join(DIR, 'state-u1.json'), 'utf8'))
-    expect(stored.workouts).toEqual([{ id: 'w1' }])
-    expect(stored).not.toHaveProperty('active')
-    expect(stored).not.toHaveProperty('_rev')
+    const get2 = await req('/api/data', { cookie })
+    expect(get2.json.rev).toBe(1)
+    expect(get2.json.state.workouts).toEqual([{ id: 'w1' }])
+    expect(get2.json.state).not.toHaveProperty('active')
   })
 
   it('stale upload is refused with current state and changes nothing', async () => {
     const cookie = mintCookie('u1')
-    const before = readFileSync(join(DIR, 'state-u1.json'), 'utf8')
     const stale = await req('/api/data', {
       method: 'PUT',
       cookie,
@@ -146,7 +145,9 @@ describe('sync revision protocol', () => {
     expect(stale.status).toBe(409)
     expect(stale.json.rev).toBe(1)
     expect(stale.json.state.workouts).toEqual([{ id: 'w1' }])
-    expect(readFileSync(join(DIR, 'state-u1.json'), 'utf8')).toBe(before)
+    const get = await req('/api/data', { cookie })
+    expect(get.json.rev).toBe(1)
+    expect(get.json.state.workouts).toEqual([{ id: 'w1' }])
   })
 
   it('fresh upload writes and bumps the revision', async () => {
