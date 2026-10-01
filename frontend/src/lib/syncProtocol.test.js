@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { createHmac } from 'node:crypto'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
+const HERE = dirname(fileURLToPath(import.meta.url))
 const DIR = mkdtempSync(join(tmpdir(), 'gym-sync-proto-'))
 const PORT = 38271 + (process.pid % 1000)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -36,10 +37,17 @@ describe('sync revision protocol', () => {
       join(DIR, 'db.json'),
       JSON.stringify({ users: [{ id: 'u1' }, { id: 'u2' }], creds: [], subs: [], invites: [] })
     )
-    child = spawn(process.execPath, [join(ROOT, 'api', 'server.js')], {
-      env: { ...process.env, PORT: String(PORT), DATA_DIR: DIR },
-      stdio: 'ignore',
-    })
+    // Server-only push/passkey modules resolve to hermetic stubs (see
+    // syncServerRegister.mjs): /api/data never touches them, and this keeps
+    // the test independent of third-party API dependencies.
+    child = spawn(
+      process.execPath,
+      ['--import', join(HERE, 'syncServerRegister.mjs'), join(ROOT, 'api', 'server.js')],
+      {
+        env: { ...process.env, PORT: String(PORT), DATA_DIR: DIR },
+        stdio: 'ignore',
+      }
+    )
     for (let i = 0; i < 100; i++) {
       try {
         // Any HTTP answer (even 401 without a cookie) proves the port is up.
