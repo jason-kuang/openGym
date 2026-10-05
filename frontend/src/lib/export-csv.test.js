@@ -100,7 +100,7 @@ describe('strong export', () => {
     })
   })
 
-  it('keeps a shadowing custom a custom', () => {
+  it('keeps a borrowed library name a custom', () => {
     const S = {
       unit: 'kg', customEx: [{ id: 'cx1', n: 'Bench Press' }],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [E('cx1', [{ w: 50, r: 8 }])])],
@@ -111,7 +111,7 @@ describe('strong export', () => {
     expectRoundTrip(S)
   })
 
-  it('keeps ordinary customs with their case folded', () => {
+  it('matches customs regardless of letter case', () => {
     expectRoundTrip({
       unit: 'kg', customEx: [{ id: 'cx2', n: 'My Jefferson Curl' }],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Pull', [E('cx2', [{ w: 20, r: 12 }])])],
@@ -132,7 +132,7 @@ describe('strong export', () => {
     })
   })
 
-  it('leaves Duration empty so repless rows stay rep sets', () => {
+  it('leaves Duration empty so zero-rep rows stay strength rows', () => {
     expectRoundTrip({
       unit: 'kg', customEx: [],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [
@@ -151,7 +151,7 @@ describe('strong export', () => {
     })
   })
 
-  it('passes RPE through and exports RIR sets unrated', () => {
+  it('copies RPE into the RPE column and leaves RIR sets blank', () => {
     expectRoundTrip({
       unit: 'kg', customEx: [],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [
@@ -170,9 +170,24 @@ describe('strong export', () => {
     })
     const orders = parseCSV(csv).slice(1).map(r => r[4])
     expect(orders).toEqual(['1', '2', '1'])
+    const notesCols = parseCSV(csv).slice(1).map(r => [r[9], r[10]])
+    expect(notesCols).toEqual([['', ''], ['', ''], ['', '']])
   })
 
-  it('exports a repped timed hold weight-only', () => {
+  it('exports an unresolvable name as its raw id', () => {
+    const S = {
+      unit: 'kg', customEx: [],
+      workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [
+        E('1310', [{ w: 40, r: 10 }]),
+        E('zz-unknown', [{ w: 20, r: 10 }]),
+      ])],
+    }
+    const csv = exportStrongCSV(S)
+    expect(parseCSV(csv).slice(1).map(r => r[3])).toEqual(['1310', 'zz-unknown'])
+    expect(parseWorkoutCSV(csv, { unit: 'kg' }).error).toBeUndefined()
+  })
+
+  it('writes only Weight for a timed hold that has reps', () => {
     const S = {
       unit: 'kg', customEx: [],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Core', [E('0025', [{ w: 60, r: 5, sec: 30 }])])],
@@ -181,7 +196,7 @@ describe('strong export', () => {
     expect(back.workouts[0].entries[0].sets).toEqual([{ w: 60, r: 0, done: true }])
   })
 
-  it('keeps case-variant shadowing customs custom', () => {
+  it('keeps uppercase borrowed names custom', () => {
     for (const n of ['BENCH PRESS', 'Squat']) {
       const S = {
         unit: 'kg', customEx: [{ id: 'cx1', n }],
@@ -195,7 +210,7 @@ describe('strong export', () => {
     }
   })
 
-  it('round-trips a pound history without converting', () => {
+  it('round-trips a pound history as-is', () => {
     expectRoundTrip({
       unit: 'lb', customEx: [],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [
@@ -215,13 +230,27 @@ describe('strong export', () => {
       ],
     }
     const { csv, back } = roundTrip(S)
-    expect(back.workouts.length).toBeGreaterThan(0)
+    expect(back.workouts.length).toBe(3)
     expect(csv).toContain('2025-01-07')
+    // the timed hold is written with its weight and comes back with zero reps
+    const holdRow = parseCSV(csv).slice(1).find(r => r[0].startsWith('2025-01-06'))
+    expect(holdRow[5]).toBe('20')
+    expect(back.workouts[0].entries[0].sets).toEqual([{ w: 20, r: 0, done: true }])
+    // same-day sessions come back as one merged day, first name wins
+    const merged = back.workouts.find(w => w.d === '2025-01-07')
+    expect(merged.name).toBe('Morning')
+    expect(merged.entries.map(e => e.id)).toEqual(['0025', '0043'])
     const nodup = W('2025-01-09', at(2025, 1, 9, 18, 0), 'ABA', [
       E('0025', [{ w: 60, r: 5 }]), E('0043', [{ w: 100, r: 5 }]), E('0025', [{ w: 62.5, r: 5 }]),
     ])
     const csv2 = exportStrongCSV({ unit: 'kg', customEx: [], workouts: [nodup] })
-    expect(parseWorkoutCSV(csv2, { unit: 'kg' }).error).toBeUndefined()
+    const back2 = parseWorkoutCSV(csv2, { unit: 'kg' })
+    expect(back2.error).toBeUndefined()
+    // split blocks of one exercise regroup under it, sets in row order
+    expect(back2.workouts[0].entries[0].id).toBe('0025')
+    expect(back2.workouts[0].entries[0].sets).toEqual([
+      { w: 60, r: 5, done: true }, { w: 62.5, r: 5, done: true },
+    ])
   })
 })
 

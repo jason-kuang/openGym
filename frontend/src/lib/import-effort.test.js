@@ -147,13 +147,13 @@ describe('effort in a backup', () => {
   })
 })
 
-// Read-side anchors for a Strong-dialect export: the full twelve-column header the
-// exporter writes, including the blank Duration cell a Strong export leaves so repless
-// rows are not mistaken for cardio. These pin the importer behavior the export relies on.
+// Read-side anchors for a Strong-dialect export, using the same header layout the
+// exporter writes. The blank Duration cell keeps zero-rep rows out of cardio, so
+// these pin the importer behavior the export relies on.
 describe('effort anchors for Strong export', () => {
   const FULL = 'Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout Notes,RPE'
 
-  it('reads RPE through the full twelve-column header', () => {
+  it('reads RPE through the full Strong header', () => {
     const p = rows(FULL, '2026-01-12 18:00,Push,,Bench Press (Barbell),1,60,5,,,,,8.5')
     expect(p.error).toBeUndefined()
     expect(p.source).toBe('Strong')
@@ -161,14 +161,14 @@ describe('effort anchors for Strong export', () => {
     expect(p.rpeSets).toBe(1)
   })
 
-  it('leaves a blank RPE unrated through the full header', () => {
+  it('reads a blank RPE cell as no rating', () => {
     const p = rows(FULL, '2026-01-12 18:00,Push,,Bench Press (Barbell),1,60,5,,,,,')
     const s = setsOf(p)[0]
     expect('rpe' in s || 'rir' in s).toBe(false)
     expect(p.rpeSets + p.rirSets).toBe(0)
   })
 
-  it('keeps a repless strength row a rep set when Duration is blank', () => {
+  it('keeps a zero-rep strength row out of cardio when Duration is blank', () => {
     const p = rows(FULL, '2026-01-12 18:00,Push,,Bench Press (Barbell),1,60,0,,,,,')
     const s = setsOf(p)[0]
     expect(s.r).toBe(0)

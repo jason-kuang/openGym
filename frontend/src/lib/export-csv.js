@@ -1,4 +1,3 @@
-// Reference solution (scratch — held out, never committed).
 import { EXIDX } from './exercises.js'
 import { matchExercise } from './import-csv.js'
 
@@ -9,7 +8,7 @@ const q = v => {
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
 }
 
-// Raw word tokens (no synonym/filler knowledge needed — matchExercise verifies).
+// Lower-cased word list a name is built from when trying shorter candidates.
 const tokensOf = name => String(name || '').toLowerCase().replace(/[()[\]]/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean)
 
 function* subsets(arr) {
@@ -27,7 +26,9 @@ function* subsets(arr) {
   }
 }
 
-// A name that resolves back to id, verified through the app's own resolver.
+// Choose the exported name for a library exercise: the full name when the
+// importer maps it back to this id, otherwise the longest word combination
+// that does, otherwise the raw id (which reimports as a custom).
 export function resolvingName(id) {
   const e = EXIDX[id]
   if (!e) return null
@@ -36,7 +37,7 @@ export function resolvingName(id) {
     const c = sub.join(' ')
     if (matchExercise(c) === id) return c
   }
-  return e.n
+  return e.id
 }
 
 function cardioCells(min, speed) {
@@ -66,7 +67,6 @@ export function exportStrongCSV(S) {
   for (const w of S.workouts || []) {
     const date = fmtStart(w.start, w.d)
     const wname = w.name || ''
-    let order = 0
     for (const e of w.entries || []) {
       let exName
       if (customs.has(e.id)) {
@@ -92,7 +92,6 @@ export function exportStrongCSV(S) {
         }
         lines.push(row.map(q).join(','))
       }
-      order++
     }
   }
   return lines.join('\n') + '\n'
