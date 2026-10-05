@@ -74,7 +74,9 @@ describe('strong export', () => {
     expect(typeof csv).toBe('string')
     const header = parseCSV(csv)[0]
     expect(detectSource(header)).toBe('Strong')
-    expect(header).toEqual(['Date', 'Workout Name', 'Duration', 'Exercise Name', 'Set Order', 'Weight', 'Reps', 'Distance', 'Seconds', 'Notes', 'Workout Notes', 'RPE'])
+    // spacing after commas is presentation: Strong and spreadsheets accept
+    // both, so compare the cell names stripped of surrounding whitespace
+    expect(header.map(c => c.trim())).toEqual(['Date', 'Workout Name', 'Duration', 'Exercise Name', 'Set Order', 'Weight', 'Reps', 'Distance', 'Seconds', 'Notes', 'Workout Notes', 'RPE'])
   })
 
   it('round-trips a plain barbell history', () => {
