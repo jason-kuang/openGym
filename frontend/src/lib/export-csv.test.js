@@ -121,7 +121,7 @@ describe('strong export', () => {
   })
 
   it('recomputes cardio min and speed exactly', () => {
-    expectRoundTrip({
+    const S = {
       unit: 'kg', customEx: [{ id: 'cxr', n: 'Morning Run' }],
       workouts: [W('2025-01-08', at(2025, 1, 8, 7, 5), 'Cardio', [E('cxr', [
         { min: 30, speed: 10 },
@@ -131,7 +131,10 @@ describe('strong export', () => {
         { min: 20, speed: 12.5 },
         { min: 7, speed: 9.9 },
       ])])],
-    })
+    }
+    expectRoundTrip(S)
+    // Duration stays blank even where a duration exists (cardio minutes)
+    expect(parseCSV(exportStrongCSV(S)).slice(1).every(r => r[2] === '')).toBe(true)
   })
 
   it('leaves Duration empty so zero-rep rows stay strength rows', () => {
@@ -196,6 +199,29 @@ describe('strong export', () => {
     }
     const { back } = roundTrip(S)
     expect(back.workouts[0].entries[0].sets).toEqual([{ w: 60, r: 0, done: true }])
+  })
+
+  it('keeps hyphenated borrowed names custom', () => {
+    for (const n of ['Bench-Press', 'Push_up']) {
+      const S = {
+        unit: 'kg', customEx: [{ id: 'cx1', n }],
+        workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [E('cx1', [{ w: 50, r: 8 }])])],
+      }
+      const { back } = roundTrip(S)
+      expect(back.workouts[0].entries[0].id).not.toBe('0025')
+      expectRoundTrip(S)
+    }
+  })
+
+  it('writes a row for an empty-named custom without breaking', () => {
+    const S = {
+      unit: 'kg', customEx: [{ id: 'cx1', n: '' }],
+      workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [E('cx1', [{ w: 50, r: 8 }])])],
+    }
+    let csv
+    expect(() => { csv = exportStrongCSV(S) }).not.toThrow()
+    expect(parseCSV(csv).length).toBe(2)
+    expect(parseWorkoutCSV(csv, { unit: 'kg' }).error).toBeUndefined()
   })
 
   it('keeps uppercase borrowed names custom', () => {
