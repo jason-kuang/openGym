@@ -148,10 +148,11 @@ describe('strong export', () => {
 
   it('quotes names with commas, quotes and newlines', () => {
     expectRoundTrip({
-      unit: 'kg', customEx: [{ id: 'cx3', n: 'Coach "Mike", special' }],
+      unit: 'kg', customEx: [{ id: 'cx3', n: 'Coach "Mike", special' }, { id: 'cxu', n: 'Presse à cuisses, "top"' }],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Run, "morning"\nfast', [
         E('0025', [{ w: 60, r: 5 }]),
         E('cx3', [{ w: 20, r: 10 }]),
+        E('cxu', [{ w: 40, r: 10 }]),
       ])],
     })
   })
@@ -160,7 +161,7 @@ describe('strong export', () => {
     expectRoundTrip({
       unit: 'kg', customEx: [],
       workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [
-        E('0025', [{ w: 60, r: 5, rpe: 8.5 }, { w: 60, r: 5, rir: 2 }, { w: 60, r: 3, rpe: 9, rir: 1 }, { w: 40, r: 8, rir: 0 }]),
+        E('0025', [{ w: 60, r: 5, rpe: 8.5 }, { w: 60, r: 5, rir: 2 }, { w: 60, r: 3, rpe: 9, rir: 1 }, { w: 40, r: 8, rir: 0 }, { w: 60, r: 5, rpe: 8.55 }, { w: 60, r: 5, rpe: 9.99 }]),
       ])],
     })
   })
@@ -177,6 +178,19 @@ describe('strong export', () => {
     expect(orders).toEqual(['1', '2', '1'])
     const notesCols = parseCSV(csv).slice(1).map(r => [r[9], r[10]])
     expect(notesCols).toEqual([['', ''], ['', ''], ['', '']])
+  })
+
+  it('exports a digit-string custom name as written', () => {
+    const S = {
+      unit: 'kg', customEx: [{ id: 'cx9', n: '0025' }],
+      workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [E('cx9', [{ w: 20, r: 10 }])])],
+    }
+    const csv = exportStrongCSV(S)
+    expect(parseCSV(csv).slice(1).map(r => r[3])).toEqual(['0025'])
+    const back = parseWorkoutCSV(csv, { unit: 'kg' })
+    expect(back.error).toBeUndefined()
+    expect((back.customEx || []).map(c => c.n)).toContain('0025')
+    expectRoundTrip(S)
   })
 
   it('exports an unresolvable name as its raw id', () => {
