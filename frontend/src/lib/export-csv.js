@@ -54,6 +54,15 @@ function cardioCells(min, speed) {
   return { km: String(km), secs: String(secs) }
 }
 
+// The importer reads a blank RPE cell as "not rated", 0 or less as unrated
+// (RPE has no 0), and caps what survives at 10 with two decimals — so the
+// cell is written pre-normalized, otherwise the round trip cannot be exact.
+const rpeCell = s => {
+  if (s.rir != null || !(s.rpe > 0)) return ''
+  const v = Math.min(10, Math.round(s.rpe * 100) / 100)
+  return v > 0 ? String(v) : ''
+}
+
 const p2 = n => String(n).padStart(2, '0')
 function fmtStart(start, d) {
   if (start == null) return d
@@ -66,11 +75,14 @@ export function exportStrongCSV(S) {
   const lines = [HEADER.join(',')]
   for (const w of S.workouts || []) {
     const date = fmtStart(w.start, w.d)
-    const wname = w.name || ''
+    // The importer trims every cell on read, so padding never survives the
+    // round trip: trim before matching and export. A name that matches the
+    // library only once trimmed still counts as borrowed.
+    const wname = String(w.name || '').trim()
     for (const e of w.entries || []) {
       let exName
       if (customs.has(e.id)) {
-        const cn = customs.get(e.id)
+        const cn = String(customs.get(e.id) ?? '').trim()
         exName = matchExercise(cn) == null ? cn : cn + ' (Custom)'
       } else if (EXIDX[e.id]) {
         exName = resolvingName(e.id)
@@ -87,8 +99,7 @@ export function exportStrongCSV(S) {
         } else if (s.sec != null) {
           row = [date, wname, '', exName, n, s.w ?? '', '', '', '', '', '', '']
         } else {
-          const rpe = s.rir != null ? '' : s.rpe != null ? String(s.rpe) : ''
-          row = [date, wname, '', exName, n, s.w ?? '', s.r ?? '', '', '', '', '', rpe]
+          row = [date, wname, '', exName, n, s.w ?? '', s.r ?? '', '', '', '', '', rpeCell(s)]
         }
         lines.push(row.map(q).join(','))
       }

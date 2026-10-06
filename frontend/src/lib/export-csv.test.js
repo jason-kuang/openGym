@@ -166,6 +166,21 @@ describe('strong export', () => {
     })
   })
 
+  it('normalizes RPE cells the importer cannot read back', () => {
+    // The importer reads 0 or less as unrated (RPE has no 0), caps what
+    // survives at 10, and keeps two decimals: writing the raw value would
+    // come back as a different rating or none at all.
+    const S = {
+      unit: 'kg', customEx: [],
+      workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), 'Push', [
+        E('0025', [{ w: 60, r: 5, rpe: 0 }, { w: 60, r: 5, rpe: -2 }, { w: 60, r: 5, rpe: 11 }, { w: 60, r: 5, rpe: 8.555 }, { w: 60, r: 5, rpe: 8.5 }]),
+      ])],
+    }
+    const csv = exportStrongCSV(S)
+    expect(parseCSV(csv).slice(1).map(r => r[11])).toEqual(['', '', '10', '8.56', '8.5'])
+    expect(parseWorkoutCSV(csv, { unit: 'kg' }).error).toBeUndefined()
+  })
+
   it('restarts Set Order within each exercise', () => {
     const csv = exportStrongCSV({
       unit: 'kg', customEx: [],
@@ -250,6 +265,26 @@ describe('strong export', () => {
       expect(entry.id).not.toBe('0043')
       expectRoundTrip(S)
     }
+  })
+
+  it('trims padded names before matching and export', () => {
+    // The importer trims every cell on read, so padding never survives: a
+    // padded shadow still counts as borrowed once trimmed, and cells go out
+    // without the padding.
+    const S = {
+      unit: 'kg',
+      customEx: [{ id: 'cx1', n: '  Bench Press  ' }, { id: 'cx2', n: '  My Lift  ' }, { id: 'cx3', n: '   ' }],
+      workouts: [W('2025-01-06', at(2025, 1, 6, 18, 30), ' Push ', [
+        E('cx1', [{ w: 50, r: 8 }]), E('cx2', [{ w: 20, r: 10 }]), E('cx3', [{ w: 20, r: 10 }]),
+      ])],
+    }
+    const csv = exportStrongCSV(S)
+    const rows = parseCSV(csv).slice(1)
+    expect(rows.map(r => r[3])).toEqual(['Bench Press (Custom)', 'My Lift', ''])
+    expect(rows.map(r => r[1])).toEqual(['Push', 'Push', 'Push'])
+    const back = parseWorkoutCSV(csv, { unit: 'kg' })
+    expect(back.error).toBeUndefined()
+    expect(back.workouts[0].entries[0].id).not.toBe('0025')
   })
 
   it('round-trips a pound history as-is', () => {
